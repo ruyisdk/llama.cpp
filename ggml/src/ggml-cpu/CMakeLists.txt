@@ -714,6 +714,55 @@ function(ggml_add_cpu_backend_variant_impl tag_name)
             )
     endif()
 
+    if (GGML_CPU_TORQ_TILE OR GGML_CPU_TORQ_TILE_ZTT)
+        if (NOT GGML_CPU_TORQ_TILE OR NOT GGML_CPU_TORQ_TILE_ZTT)
+            message(FATAL_ERROR "This integration requires GGML_CPU_TORQ_TILE and GGML_CPU_TORQ_TILE_ZTT to be enabled together")
+        endif()
+        if (NOT GGML_SYSTEM_ARCH STREQUAL "riscv64" OR GGML_CPU_ALL_VARIANTS)
+            message(FATAL_ERROR "GGML_CPU_TORQ_TILE_ZTT requires a single RISC-V CPU backend")
+        endif()
+
+        if (CMAKE_VERSION VERSION_LESS "3.16")
+            message(FATAL_ERROR "GGML_CPU_TORQ_TILE_ZTT requires CMake >= 3.16")
+        endif()
+
+        include(FetchContent)
+        # Fetch sources only; compile the selected kernels with their own ISA flags.
+        FetchContent_Declare(torq_tile_download
+            GIT_REPOSITORY https://github.com/XUANTIE-RV/torq-tile.git
+            GIT_TAG        89589f470bd1f9b87d099a28c929308e831f67ac
+            SOURCE_SUBDIR  src
+        )
+        if (CMAKE_VERSION VERSION_GREATER_EQUAL "3.18")
+            FetchContent_MakeAvailable(torq_tile_download)
+            FetchContent_GetProperties(torq_tile_download SOURCE_DIR TORQ_TILE_SRC)
+        else()
+            FetchContent_GetProperties(torq_tile_download
+                SOURCE_DIR TORQ_TILE_SRC
+                POPULATED TORQ_TILE_POPULATED
+            )
+            if (NOT TORQ_TILE_POPULATED)
+                FetchContent_Populate(torq_tile_download)
+                FetchContent_GetProperties(torq_tile_download SOURCE_DIR TORQ_TILE_SRC)
+            endif()
+        endif()
+
+        set(TORQ_TILE_ZTT_KERNEL_TARGET ${GGML_CPU_NAME}-torq-tile-ztt-kernels)
+        add_subdirectory(
+            "${CMAKE_CURRENT_SOURCE_DIR}/ggml-cpu/torq-tile"
+            "${CMAKE_CURRENT_BINARY_DIR}/torq-tile-wrapper"
+            EXCLUDE_FROM_ALL
+        )
+        target_sources(${GGML_CPU_NAME} PRIVATE $<TARGET_OBJECTS:${TORQ_TILE_ZTT_KERNEL_TARGET}>)
+        target_compile_definitions(${GGML_CPU_NAME} PRIVATE GGML_USE_CPU_TORQ_TILE GGML_USE_CPU_TORQ_TILE_ZTT)
+        list(APPEND GGML_CPU_SOURCES
+            ggml-cpu/torq-tile/torq-tile.cpp
+            ggml-cpu/torq-tile/torq-tile.h
+            ggml-cpu/torq-tile/kernels.h
+        )
+        message(STATUS "Using torq-tile Ztt Q4_K and Q6_K kernels")
+    endif()
+
     message(STATUS "Adding CPU backend variant ${GGML_CPU_NAME}: ${ARCH_FLAGS} ${ARCH_DEFINITIONS}")
     target_sources(${GGML_CPU_NAME} PRIVATE ${GGML_CPU_SOURCES})
     target_compile_options(${GGML_CPU_NAME} PRIVATE ${ARCH_FLAGS})

@@ -18,6 +18,10 @@
 #    include "kleidiai/kleidiai.h"
 #endif
 
+#ifdef GGML_USE_CPU_TORQ_TILE
+#    include "torq-tile/torq-tile.h"
+#endif
+
 #ifdef GGML_USE_CPU_RISCV64_SPACEMIT
 #    include "spacemit/ime.h"
 #endif
@@ -58,6 +62,12 @@ std::vector<ggml_backend_buffer_type_t> & ggml_backend_cpu_get_extra_buffer_type
 #ifdef GGML_USE_CPU_KLEIDIAI
         if (ggml_backend_cpu_kleidiai_buffer_type()) {
             bufts.push_back(ggml_backend_cpu_kleidiai_buffer_type());
+        }
+#endif
+
+#ifdef GGML_USE_CPU_TORQ_TILE
+        if (ggml_backend_cpu_torq_tile_buffer_type()) {
+            bufts.push_back(ggml_backend_cpu_torq_tile_buffer_type());
         }
 #endif
 
@@ -640,6 +650,12 @@ static ggml_backend_feature * ggml_backend_cpu_get_features(ggml_backend_reg_t r
     #endif
     #ifdef GGML_USE_CPU_KLEIDIAI
         features.push_back({ "KLEIDIAI", "1" });
+    #endif
+    #ifdef GGML_USE_CPU_TORQ_TILE
+        features.push_back({ "TORQ_TILE", "1" });
+    #endif
+    #ifdef GGML_USE_CPU_TORQ_TILE_ZTT
+        features.push_back({ "ZTT", "1" });
     #endif
     #ifdef GGML_USE_CPU_REPACK
         features.push_back({ "REPACK", "1" });
