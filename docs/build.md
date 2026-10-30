@@ -650,61 +650,7 @@ For detailed information about hardware support, setup instructions, and perform
 
 TORQ-Tile provides optimized microkernels for the ggml CPU backend. The current llama.cpp integration supports only its Ztt Q4_K and Q6_K kernels on RISC-V. Enable both `GGML_CPU_TORQ_TILE` and `GGML_CPU_TORQ_TILE_ZTT`; both options are off by default. Other tensor types and operations use the existing GGML CPU paths.
 
-### Dependency and requirements
-
-CMake fetches TORQ-Tile sources using the repository URL and pinned revision defined in `ggml/src/ggml-cpu/CMakeLists.txt`. To use a local checkout of that revision, pass `-DFETCHCONTENT_SOURCE_DIR_TORQ_TILE_DOWNLOAD=/path/to/torq-tile`. Only the selected kernels are compiled; the full TORQ-Tile library, tests and benchmarks are not built. Neither fetching nor Ztt compiler probing runs when the integration is disabled.
-
-Use CMake 3.16 or newer and a RISC-V Linux GCC or LLVM/Clang toolchain with the required `<riscv_ztt.h>` API and Ztt ISA support. CMake checks these compiler capabilities. The static build below also requires a Linux sysroot, startup objects and static C/C++ runtime libraries for the `lp64d` ABI. A bare-metal toolchain is not sufficient. Validation so far has used Clang; GCC requires separate validation.
-
-This is a target-specific build without automatic Ztt hardware detection. `GGML_CPU_ALL_VARIANTS` is not supported. The runtime must support the compiled Ztt profile; NLEN is read at runtime and must be a power of two no greater than 128, and UDS must match the compile-time profile.
-
-### RISC-V Linux build
-
-Set `ZTT_CC` and `ZTT_CXX` to the selected Linux cross-compiler pair. For GCC, use your toolchain's `riscv64-unknown-linux-gnu-gcc` and `riscv64-unknown-linux-gnu-g++` or equivalent prefix. For LLVM/Clang, use `clang` and `clang++`. If the compiler needs explicit target, sysroot or runtime library paths, supply a CMake toolchain file with `-DCMAKE_TOOLCHAIN_FILE=/path/to/toolchain.cmake`. Use separate build directories when switching toolchains.
-
-```bash
-cmake -S . -B build-torq-tile -G Ninja \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=riscv64 \
-    -DCMAKE_C_COMPILER="$ZTT_CC" \
-    -DCMAKE_CXX_COMPILER="$ZTT_CXX" \
-    -DCMAKE_C_FLAGS='-march=rv64gcv -mabi=lp64d' \
-    -DCMAKE_CXX_FLAGS='-march=rv64gcv -mabi=lp64d' \
-    -DCMAKE_EXE_LINKER_FLAGS=-static \
-    -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF \
-    -DGGML_CPU_TORQ_TILE=ON -DGGML_CPU_TORQ_TILE_ZTT=ON -DGGML_RVV=ON \
-    -DGGML_RV_ZFH=OFF -DGGML_RV_ZVFH=OFF -DGGML_RV_ZVFBFWMA=OFF \
-    -DGGML_RV_ZICBOP=OFF -DGGML_RV_ZIHINTPAUSE=OFF \
-    -DLLAMA_BUILD_SERVER=OFF -DLLAMA_OPENSSL=OFF
-cmake --build build-torq-tile --parallel 8 --target llama-completion llama-bench
-```
-
-`TORQ_TILE_ZTT_COMPILE_OPTIONS` sets the options for the specialized kernel target. The default is `-march=rv64gcv_ztt_zttuds32b_zttm16_ztta4;-mabi=lp64d`, corresponding to UDS32, 16 matrix registers and 4 accumulator registers. The generic GGML sources and buffer adapter retain the normal RISC-V compiler options. To select another supported profile, pass a complete semicolon-separated option list and use a matching runtime configuration.
-
-### Verifying the build
-
-Run a model containing Q4_K and Q6_K tensors, such as Qwen3-0.6B Q4_K_M, on compatible hardware or a Ztt/AME-enabled QEMU Linux-user emulator. A generic QEMU build does not establish Ztt support. For the default compiled profile:
-
-```bash
-export QEMU=/path/to/ztt-qemu-riscv64
-export MODEL=/path/to/Qwen3-0.6B-Q4_K_M.gguf
-export QEMU_CPU='rv64,v=true,vlen=128,elen=64,vext_spec=v1.0,x-ztt=true,amenlen=32,ameudsz=32,ame-num-mregs=16,ame-num-accregs=4'
-
-"$QEMU" -cpu "$QEMU_CPU" build-torq-tile/bin/llama-completion \
-    -m "$MODEL" -p 'The capital of France is' -n 8 -t 1 -c 512 -ngl 0
-```
-
-The CPU feature list reports `TORQ_TILE = 1` and `ZTT = 1`; eligible weights use the `CPU_TORQ_TILE` buffer. Buffer allocation alone does not prove that every operation uses a Ztt kernel. QEMU execution verifies functionality, not target-hardware performance.
-
-### Runtime controls and limits
-
-Set `GGML_TORQ_TILE_DISABLE=1` before starting a separate process to compare against ordinary GGML in the same binary. The setting is read once and disables both weight packing and dispatch. An unset value, empty string, `0`, `false`, `no` or `off` enables the extension; other values disable it.
-
-- Initial packed-buffer selection requires contiguous 2D Q4_K or Q6_K weights. F32 activations are quantized in blocks of 256, so K must be a positive multiple of 256. The GEMM handles M/N tails.
-- The packed weight buffer supports `GET_ROWS`, including embeddings. A complete single-row slice can also be cast to a contiguous F32 vector on the CPU. Supported reshaped weights and strided or batched inputs use a decoded CPU fallback when they cannot use Ztt GEMM. This does not imply scheduler support for arbitrary reshaped or batched weights.
-- There is no Ztt `MUL_MAT_ID` path. Packed weights require complete-tensor loading; partial updates, raw tensor readback and copying packed weights to another backend are unsupported.
-
-Activation quantization and kernel accumulation can differ numerically from generic GGML. Current model validation has not met the per-row NMSE limit of `1e-4` against generic GGML, so model-level numerical equivalence is not established. Validate fixed-input logits or perplexity for the intended workload.
+See the [Ztt quickstart](build-riscv64-ztt.md) for toolchain requirements, cross-compilation, running Qwen3 under QEMU, and runtime controls.
 
 ## Arm® KleidiAI™
 KleidiAI provides optimized Arm CPU microkernels used by the ggml CPU backend. Enabling it at build time makes those kernels available; it does not force every operation to use KleidiAI. At runtime, llama.cpp selects the best compatible CPU kernel from the detected CPU features, tensor type, operation shape, and active backend priority.
